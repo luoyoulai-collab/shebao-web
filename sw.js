@@ -1,5 +1,5 @@
 /* 一键社保认证 · Service Worker：预缓存全部资源，装到桌面后可离线使用 */
-var VERSION = 'sb-v5';
+var VERSION = 'sb-v6';
 var PRECACHE = [
   './',
   'index.html',
