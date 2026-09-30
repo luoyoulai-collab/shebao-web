@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#B71C1C">
+<meta name="description" content="一键社保认证：拍一下身份证，语音一步一步教您完成社保待遇资格认证。照片不离开手机。">
+<title>一键社保认证</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="社保认证">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 微信内打开提示 -->
+<div id="wxBanner" class="wxBanner" hidden>
+  您正在微信里打开本页面。建议先点右上角 <b>「···」</b> → 选 <b>「在浏览器打开」</b>，拍照识别更稳。
+</div>
+
+<!-- ============ 首页 ============ -->
+<section id="scr-home" class="screen">
+  <div class="topbar">
+    <h1 class="brand">社保认证</h1>
+    <button id="btnSettings" class="gear" aria-label="设置">⚙</button>
+  </div>
+  <p class="sub">每年一次，跟着语音点几下就完成</p>
+  <button id="btnShoot" class="btn btn-primary btn-huge">📷 拍身份证<br>开始认证</button>
+  <p class="hint">把身份证<b>带照片、有姓名</b>的那一面拍进来</p>
+  <button id="btnLast" class="btn btn-green btn-big" hidden></button>
+  <p class="privacy">🔒 本页面不联网上传照片，识别只在您的手机上完成</p>
+</section>
+
+<!-- ============ 相机 ============ -->
+<section id="scr-camera" class="screen" hidden>
+  <div class="cam-top">
+    <h2 class="cam-title">把身份证放进白框里</h2>
+    <p class="cam-hint">拍<b>有照片和姓名</b>的这一面</p>
+  </div>
+  <div class="cam-wrap">
+    <video id="video" playsinline muted></video>
+    <canvas id="frameOverlay"></canvas>
+    <div id="camFallback" class="cam-fallback" hidden>
+      <p>相机打不开或被拒绝</p>
+      <button id="btnFilePick" class="btn btn-primary btn-big">用相机拍一张</button>
+      <input type="file" id="fileInput" accept="image/*" capture="environment" hidden>
+    </div>
+  </div>
+  <div class="cam-bottom">
+    <button id="btnCamBack" class="btn btn-white">返回</button>
+    <button id="btnShutter" class="shutter" aria-label="拍照"></button>
+    <button id="btnTorch" class="btn btn-white">补光</button>
+  </div>
+</section>
+
+<!-- ============ 识别中 ============ -->
+<section id="scr-reading" class="screen" hidden>
+  <div class="reading">
+    <div class="spinner"></div>
+    <h2>正在读取身份证…</h2>
+    <p id="ocrProgress" class="sub">第一次使用需加载识别组件，请稍等</p>
+  </div>
+</section>
+
+<!-- ============ 核对 ============ -->
+<section id="scr-confirm" class="screen" hidden>
+  <h2 class="page-title">请核对一下</h2>
+  <div class="card">
+    <p class="label">姓名</p>
+    <p id="tvName" class="value"></p>
+    <hr class="divider">
+    <p class="label">身份证号</p>
+    <p id="tvIdNo" class="value"></p>
+  </div>
+  <div id="editBox" class="card editbox" hidden>
+    <label class="label">姓名</label>
+    <input id="etName" type="text" autocomplete="off" enterkeyhint="done">
+    <label class="label">身份证号</label>
+    <input id="etIdNo" type="text" autocomplete="off" enterkeyhint="done">
+  </div>
+  <div class="card">
+    <p class="label">紧急联系人电话（可不填）</p>
+    <input id="etPhone" type="tel" placeholder="填了会在教到那一步时给您">
+  </div>
+  <button id="btnGo" class="btn btn-primary btn-huge">✅ 没错，开始<br>语音教我认证</button>
+  <div class="row2">
+    <button id="btnEdit" class="btn btn-white">✏️ 改一改</button>
+    <button id="btnReshoot" class="btn btn-white">📷 重新拍</button>
+  </div>
+</section>
+
+<!-- ============ 语音教练 ============ -->
+<section id="scr-coach" class="screen" hidden>
+  <div class="coach-head">
+    <span id="coachStepNo" class="stepno"></span>
+    <button id="btnVoice" class="voice-on" aria-label="语音开关">🔊</button>
+  </div>
+  <div class="coach-card">
+    <h2 id="coachTitle" class="coach-title"></h2>
+    <p id="coachBody" class="coach-body"></p>
+    <div id="coachChips" class="chips"></div>
+  </div>
+  <div class="coach-btns">
+    <button id="btnPrev" class="btn btn-white">上一步</button>
+    <button id="btnNext" class="btn btn-primary btn-big">我点好了，下一步</button>
+  </div>
+  <button id="btnReplay" class="linklike">🔊 没听清，再念一遍</button>
+</section>
+
+<!-- ============ 完成 ============ -->
+<section id="scr-done" class="screen" hidden>
+  <div class="done">
+    <div class="done-check">✓</div>
+    <h2>认证成功！</h2>
+    <p id="doneSub" class="sub"></p>
+    <button id="btnDoneHome" class="btn btn-primary btn-big">完成</button>
+  </div>
+</section>
+
+<!-- ============ 设置 ============ -->
+<section id="scr-settings" class="screen" hidden>
+  <h2 class="page-title">家人设置</h2>
+  <div class="card">
+    <label class="label">小程序名称（一般不用改）</label>
+    <input id="setMini" type="text">
+    <label class="label">功能名称（一般不用改）</label>
+    <input id="setFunc" type="text">
+    <label class="label switch-row">语音播报
+      <input id="setVoice" type="checkbox" checked>
+    </label>
+  </div>
+  <button id="btnSetSave" class="btn btn-primary btn-big">保存</button>
+  <button id="btnSetBack" class="btn btn-white btn-big">返回</button>
+</section>
+
+<!-- Toast -->
+<div id="toast" class="toast" hidden></div>
+
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="js/ocr.js"></script>
+<script src="js/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () =>
+    navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
