@@ -241,7 +241,14 @@ async function captureAt(env, vw, vh, ew, eh) {
     var crName = IdOcr.subRect(cr, 0, 0.20, 0.58, 0.60);
     log('  真正贴姓名的那一条（按画出来的框算）: y=' + drawnName.y.toFixed(1) + '..' + (drawnName.y + drawnName.h).toFixed(1));
     log('  ocr.js 实际裁的姓名区            : y=' + crName.y + '..' + (crName.y + crName.h));
-    ok('1.clamp 白框与 cardRect 在这一尺寸下确实不一致（记录缺陷）', cr.h !== Math.round(drawn.h), 'drawn.h=' + drawn.h + ' cardRect.h=' + cr.h);
+    // 这里原来断言"白框与 cardRect 不一致（记录缺陷）"。
+    // 已修复：drawFrameOverlay 现在直接向 IdOcr.cardRect 要矩形，只有一个真相源，
+    // 所以这条改成断言"任何尺寸下都一致"。
+    ok('1.clamp 白框与 cardRect 在任何尺寸下都一致（缺陷已修复）',
+      Math.round(drawn.x) === cr.x && Math.round(drawn.y) === cr.y &&
+      Math.round(drawn.w) === cr.w && Math.round(drawn.h) === cr.h,
+      'drawn=' + JSON.stringify({ x: Math.round(drawn.x), y: Math.round(drawn.y), w: Math.round(drawn.w), h: Math.round(drawn.h) }) +
+      ' cardRect=' + JSON.stringify(cr));
   })();
 
   /* ============ 2. captureFrame 的 object-fit:cover 反算 ============ */

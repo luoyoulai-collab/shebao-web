@@ -33,12 +33,25 @@
 ## 测试
 
 ```bash
-node test/ocr.test.js       # 身份证解析 39 条断言（校验位用测试内独立算法现算）
-node test/static-check.js   # id 对应关系 / 无外链 / sw.js 预缓存文件都在
-node test/app.smoke.js      # 用最小 DOM 垫片把 app.js 真跑一遍，46 条断言
+node test/ocr.test.js          # 身份证解析 39 条断言（校验位用测试内独立算法现算）
+node test/static-check.js      # id 对应关系 / 无外链 / sw.js 预缓存文件都在
+node test/app.smoke.js         # 用最小 DOM 垫片把 app.js 真跑一遍，46 条断言
+# 下面是独立对抗性审查（另一个 agent 写的，专门找茬）留下的回归测试，
+# 原来每一条都在"记录缺陷"，现在都已经改成"锁住修复后的行为"：
+node test/review-geometry.js   # 91 条：白框几何 / captureFrame 反算 / cardRect 一致性
+node test/review-fuzz.js       # 251 条：32 组恶意输入 + 16 种容器形状 + 性能
+node test/review-flow.js       # 95 条：整条流程、退出路径、文案诚实性、worker 重试
+node test/review-sw.js         # 17 条：install/activate/fetch 各分支、预缓存体积
 ```
 
-三个脚本都是**零依赖**、纯 Node，不需要浏览器。
+七个脚本都是**零依赖**、纯 Node，不需要浏览器。合计 **539 条断言**，全绿。
+
+## 已知的残余风险（诚实交代）
+
+- **真机 OCR 准确率没验证过**：环境里没有相机也没有真实身份证照片，四遍识别的几何和参数调用只做到了"语法 + 几何单测 + 对着 worker.min.js 核实参数名"。
+- **`weixin://` 能不能真的拉起微信**：各浏览器行为不一样，代码只保证"不会把页面搞挂"。
+- **身份证号被 OCR 认错时无法百分百兜住**：校验位能挡掉大部分错，但"漏一位 + 旁边正好是电话号码"这种组合可能拼出一个校验通过的错号。所以核对页会把号码逐位念出来让老人用耳朵核对——**这一步别跳过**。
+- iOS 首次语音、剪贴板是否真的可用，只能真机验证。
 
 ## 部署到自己的网址（任选其一）
 
@@ -85,12 +98,14 @@ python -m http.server 8765
 
 ## 技术说明
 
-- 纯静态，无构建、无框架、无任何外部 CDN —— 所有资源（含 1.7MB 中文 OCR 模型与 Tesseract WASM）随仓库分发
+- 纯静态，无构建、无框架、无任何外部 CDN。`sw.js` 预缓存 **15 个文件、约 5.7MB**（Tesseract 主程序 + worker + **两个 LSTM core** + 1.7MB 中文模型 + 页面自身），首访下完就能完全离线。注意只预缓存 LSTM 核：`createWorker('chi_sim', 1)` 的 `oem=1` 只会用到那两个，另外两个核（约 9MB）永远请求不到，所以不预缓存。
 - `js/ocr.js`：身份证 OCR。**同一张图跑 4 遍**（整页 / 证件框 / 姓名区 / 号码区）再合并结果：号码那一遍用 `tessedit_char_whitelist=0123456789Xx` + 单行模式；解析层做混淆字符修正（O→0、I/l→1、Z→2、B→8、S→5、G→6、全角→半角）、相邻行拼号码、数字流滑 18 位窗口，并且**优先采用 GB11643 校验位通过的候选**
-- `js/app.js`：界面流程（拍照时只截取取景框里看到的那块，保证白框位置和图片坐标一一对应；复制用 navigator.clipboard → execCommand 兜底；语音用 speechSynthesis 并处理 iOS 首次不出声；断点续教存 localStorage）
-- `sw.js`：Service Worker 预缓存全部资源，添加到桌面后**完全离线可用**（改文件后记得把开头的 `VERSION` 加一）
+- `js/app.js`：界面流程（拍照时只截取取景框里看到的那块，保证白框位置和图片坐标一一对应；系统相机拍回来的照片没被裁过，只跑整页两遍、不做几何假设；复制用 navigator.clipboard → execCommand 兜底，失败会**用语音**说明白；语音用 speechSynthesis 并处理 iOS 首次不出声；识别有 75 秒超时 + 「取消，我自己填」按钮；教练页有「姓名或证件号不对，回去改」出口；断点续教存 localStorage）
+- **白框只有一个真相源**：`drawFrameOverlay()` 直接调用 `IdOcr.cardRect()` 拿矩形，不在 app.js 里另写一份公式（曾经两边各算一遍，画面太矮时会算得不一样，白框被裁、裁切区错位）
+- `sw.js`：Service Worker 预缓存全部资源，添加到桌面后**完全离线可用**（改文件后**必须**把开头的 `VERSION` 加一，否则老用户会一直用旧版本；导航回落永远返回一个真正的 `Response`，不会解析成 `undefined` 导致白屏）
 - 微信内打开会提示"用浏览器打开"（微信内置浏览器限制相机与剪贴板）
 - CSS 里有 `[hidden]{display:none!important}`：`.screen` 是 `display:flex`，不加这条隐藏的页面会被 flex 顶出来
+- CSS 里 `.toast` 必须 `pointer-events:none`：否则它压住底部按钮时会把老人的点击吃掉（提示条现在浮在底部固定条上方）
 
 ## 与 Android APP 版的差别
 
@@ -105,4 +120,4 @@ python -m http.server 8765
 ## 隐私
 
 - 无统计、无埋点、无外部请求；照片识别后仅在内存中使用，不落盘、不上传
-- 姓名/证件号仅存在老人自己手机的 localStorage（用于"上次的，再来一次"），可在浏览器设置里随时清除
+- 姓名/证件号仅存在老人自己手机的 localStorage（用于"上次的，再来一次"）。**设置页有「🗑 清除我存在手机里的姓名和身份证号」**，一键抹掉，不用去翻浏览器设置

@@ -31,6 +31,7 @@
   <button id="btnShoot" class="btn btn-primary btn-huge">📷 拍身份证<br>开始认证</button>
   <p class="hint">把身份证<b>带照片、有姓名</b>的那一面拍进来</p>
   <button id="btnLast" class="btn btn-green btn-big" hidden></button>
+  <p id="lastDone" class="hint" hidden></p>
   <p class="privacy">🔒 本页面不联网上传照片，识别只在您的手机上完成</p>
 </section>
 
@@ -62,6 +63,7 @@
     <div class="spinner"></div>
     <h2>正在读取身份证…</h2>
     <p id="ocrProgress" class="sub">第一次使用需加载识别组件，请稍等</p>
+    <button id="btnOcrCancel" class="btn btn-white btn-big">取消，我自己填</button>
   </div>
 </section>
 
@@ -115,6 +117,7 @@
     <p id="copyNote" class="copynote" hidden></p>
   </div>
   <button id="btnReplay" class="btn btn-white btn-big replay">🔊 再念一遍</button>
+  <button id="btnFix" class="btn btn-white btn-big fixbtn">✏️ 姓名或证件号不对，回去改</button>
 
   <!-- 固定在屏幕底部，永远看得见 -->
   <div class="coachbar">
@@ -130,9 +133,10 @@
 <section id="scr-done" class="screen" hidden>
   <div class="done">
     <div class="done-check">✓</div>
-    <h2>认证成功！</h2>
+    <h2>办好啦！</h2>
     <p id="doneSub" class="sub"></p>
-    <button id="btnDoneHome" class="btn btn-primary btn-big">完成</button>
+    <p class="done-note">小提示：这个页面看不到官方的回执。方便的话，回微信小程序里再瞄一眼，看到「<b>认证成功</b>」四个字就万无一失了。</p>
+    <button id="btnDoneHome" class="btn btn-primary btn-big">知道了</button>
   </div>
 </section>
 
@@ -150,6 +154,7 @@
   </div>
   <button id="btnSetSave" class="btn btn-primary btn-big">保存</button>
   <button id="btnHelp" class="btn btn-white btn-big">❓ 帮助 · 家人代办 · 其他办法</button>
+  <button id="btnClearMine" class="btn btn-white btn-big">🗑 清除我存在手机里的姓名和身份证号</button>
   <button id="btnSetBack" class="btn btn-white btn-big">返回</button>
 </section>
 

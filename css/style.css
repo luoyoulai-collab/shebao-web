@@ -24,6 +24,7 @@ body {
 }
 
 .screen {
+  min-height: 100vh;      /* 老 iOS 不认 dvh，留个退路（审查发现的问题） */
   min-height: 100dvh;
   max-width: 640px;
   margin: 0 auto;
@@ -120,7 +121,8 @@ input:focus { outline: none; border-color: var(--primary); }
 #scr-confirm .btn-huge { margin-top: 8px; }
 
 /* ---------- 教练 ---------- */
-#scr-coach { padding-bottom: 250px; }
+/* 底部固定条 230px 高；留 270px 再叠上 iPhone 的刘海安全区，才不会被盖住（审查发现的缺陷） */
+#scr-coach { padding-bottom: calc(270px + env(safe-area-inset-bottom)); }
 .coach-head { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .stepno { font-size: clamp(26px, 7vw, 34px); color: var(--primary); font-weight: 800; }
 .voice-on { font-size: 44px; background: none; border: none; }
@@ -200,11 +202,25 @@ input:focus { outline: none; border-color: var(--primary); }
 .wxBanner b { color: var(--primary); }
 
 /* ---------- Toast ---------- */
+/* 提示条：必须 pointer-events:none，否则它压在底部按钮上时会把老人的点击吃掉
+   （审查发现的缺陷：toast 占离底 60..127px，按钮行占 14..102px，重叠 42px）。
+   位置抬到底部固定条上方，既不挡按钮也不挡住当前这一步。 */
 .toast {
-  position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%);
+  position: fixed; left: 50%; bottom: calc(250px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
   background: rgba(0,0,0,.85); color: #fff; font-size: 26px;
   border-radius: 18px; padding: 18px 30px; z-index: 99; max-width: 86vw; text-align: center;
+  pointer-events: none;
 }
+
+/* 完成页的诚实提示 + 教练页的「回去改」按钮 */
+.done-note {
+  font-size: clamp(20px, 5vw, 26px); color: var(--sub);
+  line-height: 1.6; margin-top: 18px; text-align: left;
+  background: #FFF8E1; border: 2px solid #F9A825; border-radius: 16px; padding: 18px 20px;
+}
+.done-note b { color: var(--primary); }
+.fixbtn { margin-top: 16px; }
 
 /* ---------- 设置 ---------- */
 .switch-row { display: flex; align-items: center; justify-content: space-between; margin-top: 24px; }

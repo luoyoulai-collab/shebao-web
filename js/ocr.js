@@ -35,8 +35,10 @@
     '签发', '机关', '有效', '期限', '长期', '居民身份证', '中华人民共和国', '人像面', '国徽面',
     '派出所', '公安局', '分局', '村委会', '居委会', '街道', '社区', '单元', '日期', '年月',
     '地址', '有效期'];
-  // 明显不是姓名的单字（地址/标签用字）
-  var REJECT_CHARS = '省市县区镇村路街号期证址族别男女签';
+  // 明显不是姓名的单字（地址/标签用字）。
+  // 注意：「区」和「路」是真实存在的姓氏，审查发现原来放在这里会把「区大明」这类名字
+  // 直接判死，所以去掉了，宁可多给一个候选让老人在核对页看一眼。
+  var REJECT_CHARS = '省市县镇村街号期证址族别男女签';
 
   /* ==================== 基础工具 ==================== */
 
@@ -88,7 +90,9 @@
   /* ==================== 身份证号 ==================== */
 
   function checksumValid(id) {
-    if (!id || !/^\d{17}[0-9Xx]$/.test(id)) return false;
+    // 宽容一点：传进来数字类型的 18 位也不该抛异常（审查发现的 TypeError）
+    id = (id === null || id === undefined) ? '' : String(id);
+    if (!/^\d{17}[0-9Xx]$/.test(id)) return false;
     var sum = 0;
     for (var i = 0; i < 17; i++) sum += (id.charCodeAt(i) - 48) * WEIGHTS[i];
     return CHECK_CODES.charAt(sum % 11) === id.charAt(17).toUpperCase();
@@ -106,11 +110,27 @@
   function reStruct() { return new RegExp('^' + ID_STRUCT + '$'); }
   function reStruct17() { return new RegExp('^' + ID_STRUCT_17 + '$'); }
 
-  /** 在一段文本里找校验通过的号码；找不到返回 null */
+  /** 匹配的左右如果还连着别的数字，那它很可能是更长数字串里的一截（旁边还有电话号码等） */
+  function cleanBoundary(str, idx, len) {
+    if (idx > 0 && /\d/.test(str.charAt(idx - 1))) return false;
+    if (idx + len < str.length && /\d/.test(str.charAt(idx + len))) return false;
+    return true;
+  }
+
+  /**
+   * 在一段文本里找校验通过的号码；找不到返回 null。
+   * 先只认左右不挨着数字的（避免从一长串数字里硬切 18 位），
+   * 一轮找不到再放宽重扫——宁可多给一个候选让老人在核对页看一眼，也不要直接放弃。
+   */
   function scanValid(str) {
-    var re = reValid(), m;
-    while ((m = re.exec(str))) {
-      if (checksumValid(m[0])) return m[0].toUpperCase();
+    var m;
+    for (var round = 0; round < 2; round++) {
+      var re = reValid();
+      while ((m = re.exec(str))) {
+        if (!checksumValid(m[0])) continue;
+        if (round === 0 && !cleanBoundary(str, m.index, m[0].length)) continue;
+        return m[0].toUpperCase();
+      }
     }
     return null;
   }
@@ -203,9 +223,18 @@
       if (w) return { id: w, rank: 1 };
     }
 
-    // ④ 滑窗并修正校验位
-    for (i = 0; i < streams.length; i++) {
-      var r = slideWindowRepair(streams[i]);
+    // ④ 滑窗并修正校验位。
+    // **只允许单行**：多行拼出来的数字流一旦错位，这一段还会自动补一个"算出来的校验位"，
+    // 于是得到一个「校验通过、但其实错了」的号码，把核对页唯一的安全网（校验位）也绕过去。
+    // 审查用真实例子证明了这一点：真号 430102199001011238，OCR 中间漏一位 + 下一行是电话号，
+    // 就会解析出 430102199001011211 并且校验通过。所以这里只信单独一行里的数字流。
+    var singleStreams = [];
+    for (i = 0; i < lines.length; i++) {
+      var one = digitStream(lines[i]);
+      if (one.length >= 18) singleStreams.push(one);
+    }
+    for (i = 0; i < singleStreams.length; i++) {
+      var r = slideWindowRepair(singleStreams[i]);
       if (r) return { id: r, rank: 0.5 };
     }
 
@@ -451,6 +480,13 @@
         langPath: abs('vendor/tessdata'),
         gzip: true,
         logger: emitProgress
+      }).then(function (w) {
+        return w;
+      }, function (err) {
+        // 关键（审查发现的缺陷）：失败的 Promise 绝不能留在缓存里，
+        // 否则界面上那句"请再试一次"永远不可能成功，只有刷新整页才行。
+        workerReady = null;
+        throw err;
       });
     }
     return workerReady;
@@ -478,27 +514,39 @@
 
   /**
    * 识别入口：src 可以是 <img>/<canvas>/ImageBitmap。
-   * geom 可选，{rect:{x,y,w,h}} 表示证件框在原图里的像素位置；不传就按取景框比例算。
+   * geom 可选：
+   *   {rect:{x,y,w,h}}  证件框在原图里的像素位置；
+   *   {fullPageOnly:true} 这张图**没有**被取景框裁过（例如系统相机拍回来的照片），
+   *                       那就别按取景框比例硬裁 —— 只跑整页的两遍（审查发现的缺陷）。
    */
   async function recognize(src, onProgress, geom) {
     var full = preprocess(src, 1800);
+    var onlyFull = !!(geom && geom.fullPageOnly);
     var card = (geom && geom.rect) ? clampRect(geom.rect, full.width, full.height)
       : cardRect(full.width, full.height, CARD_MARGIN);
 
-    var canvases = {
-      full: full,
-      card: cropCanvas(full, card),
-      name: cropCanvas(full, subRect(card, 0, 0.20, 0.58, 0.60)),   // 姓名在左上
-      idno: cropCanvas(full, subRect(card, 0, 0.58, 1, 1))          // 公民身份号码在最下面一条
-    };
+    var canvases = { full: full };
+    var passes;
+    if (onlyFull) {
+      // 整页 + 整页只认数字：不做任何几何假设
+      passes = [
+        { key: 'full', label: '整页', psm: 6, wl: '', bonus: 0 },
+        { key: 'full', label: '整页数字', psm: 6, wl: '0123456789Xx', bonus: 0.15 }
+      ];
+    } else {
+      canvases.card = cropCanvas(full, card);
+      canvases.name = cropCanvas(full, subRect(card, 0, 0.20, 0.58, 0.60));  // 姓名在左上
+      canvases.idno = cropCanvas(full, subRect(card, 0, 0.58, 1, 1));        // 公民身份号码在最下面一条
+      passes = PASSES;
+    }
 
     progressCb = onProgress || null;
     var worker = await getWorker();
 
     var results = [];
-    for (var i = 0; i < PASSES.length; i++) {
-      var p = PASSES[i];
-      currentPass = { pass: i, passes: PASSES.length, label: p.label };
+    for (var i = 0; i < passes.length; i++) {
+      var p = passes[i];
+      currentPass = { pass: i, passes: passes.length, label: p.label };
       try {
         var txt = await recognizeOnce(worker, canvases[p.key], p.psm, p.wl);
         results.push({ text: txt, bonus: p.bonus });
@@ -509,7 +557,7 @@
     // 号码区那一遍通常最干净，放在最后再看一遍它的原始文本便于排查
     try {
       window.__idOcrRaw = results.map(function (r, i) {
-        return '===== ' + PASSES[i].label + ' =====\n' + r.text;
+        return '===== ' + passes[i].label + ' =====\n' + r.text;
       }).join('\n');
     } catch (e) {}
 

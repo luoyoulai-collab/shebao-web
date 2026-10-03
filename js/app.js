@@ -46,10 +46,42 @@
       localStorage.setItem('sb_phone', state.phone);
       localStorage.setItem('sb_coaching', state.coaching ? '1' : '0');
       localStorage.setItem('sb_step', String(state.step));
-    } catch (e) {}
+      return true;
+    } catch (e) { return false; }
   }
   function saveSettings() {
-    try { localStorage.setItem('sb_settings', JSON.stringify(state.settings)); } catch (e) {}
+    // 返回是否真的写进去了：审查发现原来写失败也照样弹「已保存」
+    try {
+      localStorage.setItem('sb_settings', JSON.stringify(state.settings));
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /** 记下"今年办过了"（只是老人自己点的完成，不是官方回执，措辞要诚实） */
+  function saveDone() {
+    try {
+      localStorage.setItem('sb_done', JSON.stringify({
+        name: state.name, at: Date.now()
+      }));
+      return true;
+    } catch (e) { return false; }
+  }
+  function lastDone() {
+    try {
+      var raw = localStorage.getItem('sb_done');
+      if (!raw) return null;
+      var d = JSON.parse(raw);
+      return (d && d.at) ? d : null;
+    } catch (e) { return null; }
+  }
+  function clearMine() {
+    try {
+      ['sb_name', 'sb_id', 'sb_phone', 'sb_coaching', 'sb_step', 'sb_done']
+        .forEach(function (k) { localStorage.removeItem(k); });
+      state.name = ''; state.idNo = ''; state.phone = '';
+      state.coaching = false; state.step = 0;
+      return true;
+    } catch (e) { return false; }
   }
 
   /* ==================== 屏幕路由 ==================== */
@@ -99,9 +131,14 @@
     try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {}
   }
 
-  /** iOS 必须先有一次用户手势才肯出声，用一段空的朗读把语音"解锁" */
-  function warmUpSpeech() {
-    if (!speechOK || speechWarmed) return;
+  /**
+   * iOS 必须先有一次用户手势才肯出声，用一段空的朗读把语音"解锁"。
+   * 审查发现的缺陷：原来不管有没有手势都解锁，结果"从存档恢复教练"那条没有手势的
+   * 路径会把 iOS 唯一的一次解锁机会白白用掉，老人真正开口点时反而不响了。
+   * 所以现在只认真正的用户手势。
+   */
+  function warmUpSpeech(fromGesture) {
+    if (!speechOK || !fromGesture || speechWarmed) return;
     speechWarmed = true;
     try {
       var u = new SpeechSynthesisUtterance(' ');
@@ -114,7 +151,6 @@
   function speak(text) {
     if (!speechOK || !state.settings.voice || !text) return;
     try {
-      warmUpSpeech();
       if (!zhVoice) pickVoice();
       var u = new SpeechSynthesisUtterance(String(text));
       u.lang = 'zh-CN';
@@ -185,8 +221,10 @@
       } else if (auto) {
         if (note) {
           note.hidden = false;
-          note.textContent = '请点上面黄色的【复制】按钮，再长按方框点「粘贴」。';
+          note.textContent = '没自动复制上，请点上面黄色的【复制】按钮，再长按方框点「粘贴」。';
         }
+        // 老人可能不识字/看不清，失败必须说出来，不能只写在小字里
+        speak('没复制上，请点屏幕上面黄色的复制按钮，再长按方框点粘贴。');
       } else {
         toast('复制失败，请长按上面的文字自己选复制', 3800);
       }
@@ -209,14 +247,14 @@
     if (/MicroMessenger/i.test(navigator.userAgent)) $('wxBanner').hidden = false;
     refreshLast();
     $('btnShoot').onclick = function () {
-      warmUpSpeech();
+      warmUpSpeech(true);
       speak('把身份证放进白框里，点下面的大圆钮拍照');
       openCamera();
     };
     $('btnLast').onclick = function () {
       // 用已经读进来的 state，别再读一次 localStorage（两处会不一致）
       if (!state.name || !state.idNo) { toast('上次的信息不完整，请重新拍'); return; }
-      warmUpSpeech();
+      warmUpSpeech(true);
       toConfirm(false);
     };
     $('btnSettings').onclick = function () {
@@ -234,6 +272,19 @@
       b.innerHTML = '上次的：' + esc(state.name) + '<br>再来一次';
     } else {
       b.hidden = true;
+    }
+    var note = $('lastDone');
+    if (note) {
+      var done = lastDone();
+      if (done) {
+        var dd = new Date(done.at);
+        note.hidden = false;
+        note.textContent = '本机记录：' + (done.name || '') + ' 于 ' +
+          dd.getFullYear() + ' 年 ' + (dd.getMonth() + 1) + ' 月 ' + dd.getDate() +
+          ' 日走完过认证流程（认证每年一次，办过就不用再办）';
+      } else {
+        note.hidden = true;
+      }
     }
   }
 
@@ -288,8 +339,21 @@
       cv.width = w; cv.height = h;
       var ctx = cv.getContext('2d');
       ctx.clearRect(0, 0, w, h);
-      var cw = w * 0.88, ch = cw * 54 / 85.6;
-      var x = (w - cw) / 2, y = h * 0.18;
+      // 【关键】白框的位置直接问 ocr.js 要，绝不在这里另写一份公式。
+      // 原来这里和 ocr.js 各算一遍，一旦画面太矮（框底超出画布）两边就会算得不一样：
+      // 屏幕上画的框被裁掉一截，OCR 却按夹紧后的位置去裁 —— 审查发现的真实缺陷。
+      // 现在只有一个真相源，白框永远完整可见，裁切区永远对得上。
+      var rect = null;
+      try {
+        if (window.IdOcr && IdOcr.cardRect) rect = IdOcr.cardRect(w, h, 0);
+      } catch (e) { rect = null; }
+      var cw, ch, x, y;
+      if (rect && rect.w > 0 && rect.h > 0) {
+        x = rect.x; y = rect.y; cw = rect.w; ch = rect.h;
+      } else {
+        cw = w * 0.88; ch = cw * 54 / 85.6;
+        x = (w - cw) / 2; y = h * 0.18;
+      }
       ctx.fillStyle = 'rgba(0,0,0,.55)';
       ctx.save();
       ctx.beginPath();
@@ -347,7 +411,7 @@
   function shutter() {
     var v = $('video');
     if (!stream || !v.videoWidth) { toast('相机还没准备好，请稍等一下'); return; }
-    warmUpSpeech();
+    warmUpSpeech(true);
     var cv = captureFrame();
     if (!cv) {
       cv = document.createElement('canvas');
@@ -356,25 +420,38 @@
     }
     stopStream();
     speak('正在读身份证，请稍等');
-    runOcr(cv);
+    runOcr(cv, false);
   }
 
   async function onFilePicked(file) {
     if (!file) return;
-    warmUpSpeech();
-    speak('正在读身份证，请稍等');
-    var bmp;
-    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-    catch (e) {
-      try { bmp = await createImageBitmap(file); }
-      catch (e2) {
-        var img = new Image();
-        img.src = URL.createObjectURL(file);
-        await img.decode();
-        bmp = img;
+    warmUpSpeech(true);
+    var bmp = null;
+    try {
+      try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+      catch (e) {
+        try { bmp = await createImageBitmap(file); }
+        catch (e2) {
+          var img = new Image();
+          img.src = URL.createObjectURL(file);
+          await img.decode();
+          bmp = img;
+        }
       }
+    } catch (e3) {
+      bmp = null;
     }
-    runOcr(bmp);
+    // 【审查发现的缺陷】原来这条路一旦失败（比如 iPhone 拍的 HEIC 解不开）会静默抛出
+    // 未处理的 Promise 异常：没有提示、人还卡在相机页，完全不知道发生了什么。
+    if (!bmp) {
+      toast('这张照片读不出来，请重拍一张，或换用相机直接拍', 4200);
+      speak('这张照片读不出来，请重拍一张');
+      return;
+    }
+    speak('正在读身份证，请稍等');
+    // 系统相机拍的照片没有被取景框裁过，几何位置对不上，
+    // 所以只跑"整页"那一遍，别按取景框比例去硬裁（审查发现的缺陷）
+    runOcr(bmp, true);
   }
 
   /* ==================== 识别进度 ==================== */
@@ -390,16 +467,41 @@
     return '正在读取身份证…' + passTxt;
   }
 
-  async function runOcr(src) {
+  /** 给一个 Promise 加超时：识别再慢也不能让老人永远停在"正在读取身份证…"（审查发现的缺陷） */
+  function withTimeout(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var t = setTimeout(function () {
+        if (done) return; done = true;
+        reject(new Error('timeout'));
+      }, ms);
+      Promise.resolve(promise).then(function (v) {
+        if (done) return; done = true; clearTimeout(t); resolve(v);
+      }, function (e) {
+        if (done) return; done = true; clearTimeout(t); reject(e);
+      });
+    });
+  }
+
+  var OCR_TIMEOUT_MS = 75000;
+  var ocrSeq = 0;          // 每次识别一个序号，取消/重拍后旧结果直接作废
+
+  async function runOcr(src, fullPageOnly) {
+    var seq = ++ocrSeq;
     show('reading');
     keepAwake();
     $('ocrProgress').textContent = '正在读取身份证…';
     try {
-      var r = await IdOcr.recognize(src, function (m) {
-        var el = $('ocrProgress');
-        if (el && m) el.textContent = progressText(m);
-      });
-      if (r.name || r.idNo) {
+      var r = await withTimeout(
+        IdOcr.recognize(src, function (m) {
+          if (seq !== ocrSeq) return;
+          var el = $('ocrProgress');
+          if (el && m) el.textContent = progressText(m);
+        }, { fullPageOnly: !!fullPageOnly }),
+        OCR_TIMEOUT_MS
+      );
+      if (seq !== ocrSeq) return;
+      if (r && (r.name || r.idNo)) {
         if (r.name) state.name = r.name;
         if (r.idNo) state.idNo = r.idNo;
         toConfirm(true);
@@ -409,8 +511,9 @@
         openCamera();
       }
     } catch (e) {
-      toast('识别出错了，请再试一次', 3200);
-      speak('识别出错了，请再试一次。');
+      if (seq !== ocrSeq) return;
+      toast('这台手机认得有点慢或出了错，请再试一次，或点「手动输入」自己填', 4600);
+      speak('认得有点慢。请再试一次，或者点手动输入，自己把姓名和号码填上。');
       openCamera();
     }
   }
@@ -437,6 +540,7 @@
   }
 
   var wrongIdAccepted = false;   // 校验位不对时，需要再点一次才放行
+  var keepCoachStep = false;     // 「回去改」时不要丢掉教练进度
 
   function toConfirm(fromOcr) {
     show('confirm');
@@ -471,7 +575,7 @@
 
   function initConfirm() {
     $('btnGo').onclick = function () {
-      warmUpSpeech();
+      warmUpSpeech(true);
       applyEdits();
       if (!state.name || !state.idNo) {
         setWarn('姓名和身份证号都要填上，才能继续。');
@@ -489,7 +593,9 @@
         return;
       }
       state.coaching = true;
-      state.step = 0;
+      // 从教练页回来改资料时（keepCoachStep）保留进度，别把老人踹回第一步
+      if (!keepCoachStep) state.step = 0;
+      keepCoachStep = false;
       savePerson();
       keepAwake();
       show('coach');
@@ -497,13 +603,13 @@
     };
     $('btnEdit').onclick = function () {
       // 只负责展开、不负责收起：老人按错了也不会把输入框弄没
-      warmUpSpeech();
+      warmUpSpeech(true);
       $('editBox').hidden = false;
       openEdit(!state.name ? 'etName' : (!state.idNo ? 'etIdNo' : 'etName'));
       speak('请在方框里修改姓名和身份证号');
     };
     $('btnManual').onclick = function () {
-      warmUpSpeech();
+      warmUpSpeech(true);
       $('editBox').hidden = false;
       setWarn('请用键盘把姓名和身份证号填上，填好点绿色按钮。');
       openEdit(!state.name ? 'etName' : (!state.idNo ? 'etIdNo' : 'etName'));
@@ -549,7 +655,7 @@
       {
         t: '搜索小程序名',
         b: '在搜索框里<b>长按</b>，点【<b>粘贴</b>】，再点【<b>搜索</b>】。',
-        voice: '第三步，我已经帮您把小程序名复制好了。在搜索框里长按，点粘贴，再点搜索。',
+        voice: '第三步，在搜索框里长按，点粘贴，再点搜索。',
         chips: [{ label: mini, name: '小程序名' }],
         copy: mini,
         copyWhat: '小程序名'
@@ -564,7 +670,7 @@
         t: '点「' + func + '」',
         b: '进小程序以后，找到【<b>' + esc(func) + '</b>】点进去。<br>' +
            '看不到的话，点小程序<b>最上面</b>的搜索框，再搜一次【' + esc(func) + '】。',
-        voice: '第五步，找到' + func + '，点进去。看不到的话，点最上面的搜索框，再搜一次。',
+        voice: '第五步，找到' + func + '，点进去。看不到的话，点最上面的搜索框，长按粘贴，再搜一次。',
         chips: [{ label: func, name: '功能名' }],
         copy: func,
         copyWhat: '功能名'
@@ -575,7 +681,7 @@
            '再点下面【证件号】旁边的<b>复制</b>，长按【<b>证件号码</b>】框，点【粘贴】。' +
            (phone ? '<br>有【紧急联系人】一栏的话，把最后一个也粘上。' : '') +
            '<br>核对没错，就点【<b>开始认证</b>】。',
-        voice: '第六步，我已经帮您把姓名复制好了。先长按姓名框，点粘贴。再点证件号旁边的复制，长按证件号码框，点粘贴。核对没错，点开始认证。',
+        voice: '第六步，先长按姓名框，点粘贴。再点证件号旁边的复制，长按证件号码框，点粘贴。核对没错，点开始认证。',
         chips: [{ label: state.name, name: '姓名' }, { label: state.idNo, name: '证件号' }]
           .concat(phone ? [{ label: phone, name: '联系人' }] : []),
         copy: state.name,
@@ -678,10 +784,13 @@
   function openWeChat() {
     wxTapAt = Date.now();
     $('wxHelp').hidden = true;
-    warmUpSpeech();
+    warmUpSpeech(true);
     tryScheme('weixin://');
+    // 300ms 后页面还在，说明第一个 scheme 没被接住，再试第二个。
+    // 注意：原来这里写了个 Date.now()-wxTapAt>1500 的判断，在 300ms 的定时器里永远为假，
+    // 等于无条件再跳一次，Safari 会多弹一次「打不开」的框 —— 审查发现的缺陷，已去掉。
     setTimeout(function () {
-      if (!wxStillHere() || Date.now() - wxTapAt > 1500) return;
+      if (!wxStillHere()) return;
       try { location.href = 'weixin://dl/chat'; } catch (e) {}
     }, 300);
     setTimeout(function () {
@@ -693,7 +802,7 @@
 
   function initCoach() {
     $('btnNext').onclick = function () {
-      warmUpSpeech();
+      warmUpSpeech(true);
       if (state.step >= steps.length - 1) { finish(); return; }
       state.step++;
       renderStep();
@@ -704,7 +813,7 @@
       renderStep();
     };
     $('btnReplay').onclick = function () {
-      warmUpSpeech();
+      warmUpSpeech(true);
       var s = steps[state.step];
       if (s) speak(s.voice || s.t);
       flashCard();
@@ -718,16 +827,28 @@
     };
     $('btnOpenWx').onclick = openWeChat;
     $('btnWxHelpOk').onclick = function () { $('wxHelp').hidden = true; };
+    // 教练页原来是个"死胡同"：姓名/证件号填错了出不去（审查发现的缺陷）
+    $('btnFix').onclick = function () {
+      warmUpSpeech(true);
+      keepCoachStep = true;
+      show('confirm');
+      setWarn('把姓名或证件号改对，再点绿色按钮接着走。改完还是从刚才那一步继续。');
+      speak('把姓名或者号码改对，再点绿色按钮，还是从刚才那一步接着来。');
+    };
   }
 
   function finish() {
     var d = new Date();
     var dateStr = d.getFullYear() + ' 年 ' + (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
-    $('doneSub').textContent = state.name + ' 已完成待遇资格认证 · ' + dateStr;
+    // 诚实：这个页面拿不到官方回执，它唯一知道的就是"老人自己点了完成"。
+    // 原来写"认证成功 / 已完成待遇资格认证"是在替官方下结论（审查发现的缺陷）。
+    $('doneSub').textContent = state.name + ' · ' + dateStr;
     state.coaching = false;
     state.step = 0;
     savePerson();
-    speak('认证成功，恭喜您！');
+    saveDone();
+    refreshLast();
+    speak('好，那就算办好了。方便的话，回微信里再看一眼，有没有认证成功四个字。');
     show('done');
   }
 
@@ -748,19 +869,35 @@
       state.settings.mini = $('setMini').value.trim() || '湖南智慧人社';
       state.settings.func = $('setFunc').value.trim() || '待遇资格认证';
       state.settings.voice = $('setVoice').checked;
-      saveSettings();
-      toast('已保存');
+      // 写不进去就不能说「已保存」（审查发现的缺陷：原来把异常吞了还照样报成功）
+      if (saveSettings()) {
+        toast('已保存');
+      } else {
+        toast('这次改的马上能用，但这台手机存不下来（可能开了无痕浏览）', 4400);
+      }
       show('home');
     };
     $('btnSetBack').onclick = function () { show('home'); };
     $('btnHelp').onclick = function () { show('help'); };
     $('btnHelpBack').onclick = function () { show('settings'); };
+    $('btnClearMine').onclick = function () {
+      clearMine();
+      refreshLast();
+      toast('已经清除。下次要认证重新拍一次身份证就行。', 4200);
+      speak('已经清除了。下次要认证，重新拍一次身份证就行。');
+    };
   }
 
   /* ==================== 相机按钮 ==================== */
 
   function initCameraButtons() {
     $('btnCamBack').onclick = function () { stopStream(); show('home'); };
+    $('btnOcrCancel').onclick = function () {
+      ocrSeq++;                       // 让在途的识别结果直接作废
+      stopStream();
+      show('home');
+      toast('已经停下了。想手动填就再点一次拍照按钮，或点最后一次的记录。', 4000);
+    };
     $('btnShutter').onclick = shutter;
     $('btnTorch').onclick = function () {
       if (!stream) return;
@@ -808,7 +945,7 @@
   // 第一次点屏幕就把语音解锁（iOS 不给手势就不出声）
   ['pointerdown', 'touchstart', 'click'].forEach(function (ev) {
     document.addEventListener(ev, function once() {
-      warmUpSpeech();
+      warmUpSpeech(true);
       document.removeEventListener(ev, once);
     }, { passive: true });
   });
