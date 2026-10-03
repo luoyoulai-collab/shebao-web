@@ -68,6 +68,9 @@
 <!-- ============ 核对 ============ -->
 <section id="scr-confirm" class="screen" hidden>
   <h2 class="page-title">请核对一下</h2>
+
+  <div id="warnBox" class="warn" hidden></div>
+
   <div class="card">
     <p class="label">姓名</p>
     <p id="tvName" class="value"></p>
@@ -75,17 +78,23 @@
     <p class="label">身份证号</p>
     <p id="tvIdNo" class="value"></p>
   </div>
+
   <div id="editBox" class="card editbox" hidden>
-    <label class="label">姓名</label>
-    <input id="etName" type="text" autocomplete="off" enterkeyhint="done">
-    <label class="label">身份证号</label>
-    <input id="etIdNo" type="text" autocomplete="off" enterkeyhint="done">
+    <p class="edit-title">请用键盘填上</p>
+    <label class="label" for="etName">姓名</label>
+    <input id="etName" type="text" autocomplete="off" enterkeyhint="next" placeholder="例如：张三">
+    <label class="label" for="etIdNo">身份证号（18 位）</label>
+    <input id="etIdNo" type="text" autocomplete="off" enterkeyhint="next" placeholder="18 位数字，最后一位可能是 X">
+    <p class="edit-note">手机号在下面那一栏填。</p>
   </div>
+
   <div class="card">
-    <p class="label">紧急联系人电话（可不填）</p>
-    <input id="etPhone" type="tel" placeholder="填了会在教到那一步时给您">
+    <label class="label" for="etPhone">紧急联系人电话（可不填）</label>
+    <input id="etPhone" type="tel" autocomplete="off" enterkeyhint="done" placeholder="填了会教您粘到小程序里">
   </div>
+
   <button id="btnGo" class="btn btn-primary btn-huge">✅ 没错，开始<br>语音教我认证</button>
+  <button id="btnManual" class="btn btn-white btn-big manual">⌨️ 看不清？我手动输入</button>
   <div class="row2">
     <button id="btnEdit" class="btn btn-white">✏️ 改一改</button>
     <button id="btnReshoot" class="btn btn-white">📷 重新拍</button>
@@ -98,16 +107,23 @@
     <span id="coachStepNo" class="stepno"></span>
     <button id="btnVoice" class="voice-on" aria-label="语音开关">🔊</button>
   </div>
-  <div class="coach-card">
+  <div id="stepDots" class="dots"></div>
+  <div id="coachCard" class="coach-card">
     <h2 id="coachTitle" class="coach-title"></h2>
     <p id="coachBody" class="coach-body"></p>
     <div id="coachChips" class="chips"></div>
+    <p id="copyNote" class="copynote" hidden></p>
   </div>
-  <div class="coach-btns">
-    <button id="btnPrev" class="btn btn-white">上一步</button>
-    <button id="btnNext" class="btn btn-primary btn-big">我点好了，下一步</button>
+  <button id="btnReplay" class="btn btn-white btn-big replay">🔊 再念一遍</button>
+
+  <!-- 固定在屏幕底部，永远看得见 -->
+  <div class="coachbar">
+    <button id="btnOpenWx" class="btn btn-green btn-wx">💬 打开微信</button>
+    <div class="coachbar-row">
+      <button id="btnPrev" class="btn btn-white">上一步</button>
+      <button id="btnNext" class="btn btn-primary">我点好了，下一步</button>
+    </div>
   </div>
-  <button id="btnReplay" class="linklike">🔊 没听清，再念一遍</button>
 </section>
 
 <!-- ============ 完成 ============ -->
@@ -124,17 +140,57 @@
 <section id="scr-settings" class="screen" hidden>
   <h2 class="page-title">家人设置</h2>
   <div class="card">
-    <label class="label">小程序名称（一般不用改）</label>
+    <label class="label" for="setMini">小程序名称（一般不用改）</label>
     <input id="setMini" type="text">
-    <label class="label">功能名称（一般不用改）</label>
+    <label class="label" for="setFunc">功能名称（一般不用改）</label>
     <input id="setFunc" type="text">
-    <label class="label switch-row">语音播报
+    <label class="label switch-row" for="setVoice">语音播报
       <input id="setVoice" type="checkbox" checked>
     </label>
   </div>
   <button id="btnSetSave" class="btn btn-primary btn-big">保存</button>
+  <button id="btnHelp" class="btn btn-white btn-big">❓ 帮助 · 家人代办 · 其他办法</button>
   <button id="btnSetBack" class="btn btn-white btn-big">返回</button>
 </section>
+
+<!-- ============ 帮助 ============ -->
+<section id="scr-help" class="screen" hidden>
+  <h2 class="page-title">帮助</h2>
+
+  <div class="card help">
+    <h3 class="help-h">下次不用再搜了</h3>
+    <p>第一次认证完，小程序会出现在微信下拉的「最近使用的小程序」里，以后下拉一下就能直接点开。</p>
+    <p>记得让家人帮您把「湖南智慧人社」加到「我的小程序」，以后就不用再搜了。</p>
+  </div>
+
+  <div class="card help">
+    <h3 class="help-h">家人可以代办吗？</h3>
+    <p>可以办一部分。家人用自己手机上的<b>电子社保卡</b>微信小程序或支付宝小程序，进「<b>亲情服务</b>」→「<b>添加亲情账号</b>」，把老人绑定进来，之后就能从家人手机上发起认证、填资料。</p>
+    <p><b>但是</b>，人脸识别（眨眨眼、摇摇头）那一步，绝大多数情况下<b>还是要老人本人对着镜头做</b>。除非当地社保局另有说法。</p>
+  </div>
+
+  <div class="card help">
+    <h3 class="help-h">手机上实在弄不了怎么办</h3>
+    <p>打社保服务热线 <b>12333</b>，或者去当地社保经办窗口，工作人员会帮您办。</p>
+    <p>长期卧床、实在没法做动作的，可以用「智慧人社」公众号或 APP 里的「<b>非人脸认证申请</b>」。</p>
+  </div>
+
+  <div class="card help">
+    <h3 class="help-h">一年要办几次？</h3>
+    <p>认证是<b>每年一次</b>，今年办过就不用再办了。</p>
+  </div>
+
+  <button id="btnHelpBack" class="btn btn-primary btn-big">返回</button>
+</section>
+
+<!-- 微信打不开时的提示面板 -->
+<div id="wxHelp" class="wxhelp" hidden>
+  <div class="wxhelp-box">
+    <p class="wxhelp-big">没反应的话，请回到手机桌面，点<b>绿色的微信图标</b>。</p>
+    <p class="wxhelp-small">微信图标是绿色的，上面有一个白色的小气泡。</p>
+    <button id="btnWxHelpOk" class="btn btn-primary btn-big">我知道了</button>
+  </div>
+</div>
 
 <!-- Toast -->
 <div id="toast" class="toast" hidden></div>
