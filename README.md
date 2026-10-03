@@ -2,6 +2,8 @@
 
 **线上地址：<https://luoyoulai-collab.github.io/shebao-web/>**
 
+**安卓 APP 版（全自动）下载：<https://github.com/luoyoulai-collab/shebao-web/releases/tag/app-v2.0>**
+
 帮中老年人完成社保「待遇资格认证」的网页工具：**拍一下身份证，自动识别姓名和证件号，然后一步一步用语音+大字教您在微信里完成认证**。
 
 - 打开链接就能用，无需安装（可"添加到桌面"变成图标，之后离线也能用）
